@@ -17,6 +17,7 @@ RUN apk add --no-cache \
 	gettext-static \
 	gperf \
 	gcc \
+	build-base \
 	musl-dev \
 	pkgconf \
 	ca-certificates \
@@ -31,6 +32,12 @@ RUN apk add --no-cache \
 	python3 \
 	bc \
 	cmake \
+	bash \
+	m4 \
+	findutils \
+	tar \
+	gzip \
+	gmp-dev \
 	gmp-static \
 	libunistring-dev \
 	libunistring-static \
@@ -40,27 +47,11 @@ RUN apk add --no-cache \
 	nghttp2-static \
 	libmicrohttpd-dev \
 	libmicrohttpd-static \
-	build-base \
-	bash \
-	build-base \
-    gmp-dev \
-    m4 \
-    autoconf \
-    automake \
-    libtool \
-    git \
-	findutils \
-	tar \
-	gzip \
-	gmp-dev \
-    libtasn1-dev \
-    nettle-dev \
-    zlib-dev \
-    pkgconf
+	linux-headers \
+	zlib-dev
 
 ENV PREFIX=/usr/local
 ENV PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig" \
-    PKG_CONFIG_LIBDIR="$PREFIX/lib/pkgconfig" \
     CPPFLAGS="-I$PREFIX/include" \
     LDFLAGS="-L$PREFIX/lib" \
     CFLAGS="-O2 -g"
@@ -68,14 +59,17 @@ ENV PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig" \
 RUN git clone --recursive https://github.com/coreutils/gnulib.git gnulib
 ENV GNULIB_REFDIR=/usr/local/gnulib
 
-RUN wget -c -q -O nettle.tar.gz "https://github.com/gnutls/nettle/archive/refs/tags/nettle_4.0_release_20260205.tar.gz" && tar axf nettle.tar.gz && \
+# Nettle 4.0 changed the nettle_cipher_func and nettle_hash_func signatures.
+# GnuTLS supports it since 3.8.13, but wget2's libwget nettle fallback still
+# uses the old hash API, so stay on the latest 3.10 release (supported by both).
+RUN wget -c -q -O nettle.tar.gz "https://github.com/gnutls/nettle/archive/refs/tags/nettle_3.10.2_release_20250626.tar.gz" && tar axf nettle.tar.gz && \
 	cd nettle* && bash .bootstrap && \
 	./configure --disable-shared --enable-static --disable-documentation --prefix=$PREFIX && \
 	make -j$(nproc) && make install && cd .. && rm -rf nettle*
 
-RUN wget -q "https://www.gnupg.org/ftp/gcrypt/gnutls/v3.8/gnutls-3.8.12.tar.xz" && \
-    tar axf gnutls-3.8.12.tar.xz && \
-    cd gnutls-3.8.12/ && \
+RUN wget -q "https://www.gnupg.org/ftp/gcrypt/gnutls/v3.8/gnutls-3.8.13.tar.xz" && \
+    tar axf gnutls-3.8.13.tar.xz && \
+    cd gnutls-3.8.13/ && \
     PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig:$PREFIX/lib64/pkgconfig" \
     NETTLE_CFLAGS="-I$PREFIX/include" \
     NETTLE_LIBS="-L$PREFIX/lib -lnettle -lhogweed -L$PREFIX/lib" \
@@ -101,7 +95,7 @@ RUN wget -q "https://www.gnupg.org/ftp/gcrypt/gnutls/v3.8/gnutls-3.8.12.tar.xz" 
     make -j$(nproc) && \
     make install && \
     cd .. && \
-    rm -rf gnutls-3.8.12/
+    rm -rf gnutls-3.8.13/ gnutls-3.8.13.tar.xz
 
 RUN wget -q -O- https://ftp.gnu.org/pub/gnu/libiconv/libiconv-1.18.tar.gz | tar xz
 RUN cd libiconv-* && \
@@ -127,8 +121,16 @@ RUN cd zlib-ng && \
 	./configure --prefix=$PREFIX --static --zlib-compat && \
 	make -j$(nproc) && make install && cd .. && rm -rf zlib-ng
 
+# libtool's "-static" only statically links libtool libraries; the second
+# "--static" is passed through to gcc and is what makes the binary static.
+# gnutls.pc does not list nettle/hogweed in Requires.private, so a static link
+# against libgnutls.a needs them passed explicitly via LIBS.
 RUN git clone https://gitlab.com/gnuwget/wget2.git
 RUN cd wget2 && ./bootstrap --skip-po && \
 	LDFLAGS="-static --static" CFLAGS="-O2 -DNGHTTP2_STATICLIB" \
+	LIBS="-lhogweed -lnettle -lgmp" \
+	PKG_CONFIG="pkg-config --static" \
 	./configure --disable-shared --enable-static --without-gpgme && \
-	make -C lib -j$(nproc) && make -C libwget -j$(nproc) && make -C src -j$(nproc)
+	make -j$(nproc) && \
+	make install && \
+	cd .. && rm -rf wget2

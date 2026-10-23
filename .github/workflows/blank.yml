@@ -31,10 +31,16 @@ jobs:
           CONTAINER_ID=$(docker create wget2-builder-amd64)
           
           # 3. Copia o binário 'wget2' gerado no container para a pasta dist do host
-          docker cp $CONTAINER_ID:/usr/local/bin/wget ./dist/wget2-x86_64-static
+          docker cp $CONTAINER_ID:/usr/local/bin/wget2 ./dist/wget2-x86_64-static
           
           # 4. Remove o container temporário
           docker rm $CONTAINER_ID
+
+      - name: Check that the binary is statically linked
+        run: |
+          file dist/wget2-x86_64-static
+          ! file dist/wget2-x86_64-static | grep -q 'dynamically linked'
+          dist/wget2-x86_64-static --version
 
       - name: Set permissions for dist directory
         run: |
