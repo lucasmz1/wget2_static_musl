@@ -38,6 +38,7 @@ jobs:
 
       - name: Check that the binary is statically linked
         run: |
+          strip dist/wget2-x86_64-static
           file dist/wget2-x86_64-static
           ! file dist/wget2-x86_64-static | grep -q 'dynamically linked'
           dist/wget2-x86_64-static --version
